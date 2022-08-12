@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,9 +28,6 @@ class ConfigManager
 			ONE_PLAYER_ON_ACCOUNT,
 			AIMBOT_HOTKEY_ENABLED,
 			REMOVE_RUNE_CHARGES,
-			REMOVE_WEAPON_AMMO,
-			REMOVE_WEAPON_CHARGES,
-			REMOVE_POTION_CHARGES,			
 			EXPERIENCE_FROM_PLAYERS,
 			FREE_PREMIUM,
 			REPLACE_KICK_ON_LOGIN,
@@ -43,20 +40,16 @@ class ConfigManager
 			CONVERT_UNSAFE_SCRIPTS,
 			CLASSIC_EQUIPMENT_SLOTS,
 			CLASSIC_ATTACK_SPEED,
-			SCRIPTS_CONSOLE_LOGS,
-			SERVER_SAVE_NOTIFY_MESSAGE,
-			SERVER_SAVE_CLEAN_MAP,
-			SERVER_SAVE_CLOSE,
-			SERVER_SAVE_SHUTDOWN,
-			ONLINE_OFFLINE_CHARLIST,
-			YELL_ALLOW_PREMIUM,
-			FORCE_MONSTERTYPE_LOAD,
+			ALLOW_BLOCK_SPAWN,
+			ENABLE_LIVE_CASTING,
+			
+			REMOVE_WEAPON_AMMO,
+			REMOVE_WEAPON_CHARGES,
 
 			LAST_BOOLEAN_CONFIG /* this must be the last one */
 		};
 
 		enum string_config_t {
-			IP_STRING,
 			MAP_NAME,
 			HOUSE_RENT_PERIOD,
 			SERVER_NAME,
@@ -64,6 +57,7 @@ class ConfigManager
 			OWNER_EMAIL,
 			URL,
 			LOCATION,
+			IP,
 			MOTD,
 			WORLD_TYPE,
 			MYSQL_HOST,
@@ -73,12 +67,12 @@ class ConfigManager
 			MYSQL_SOCK,
 			DEFAULT_PRIORITY,
 			MAP_AUTHOR,
+			VERSION_STR,
 
 			LAST_STRING_CONFIG /* this must be the last one */
 		};
 
 		enum integer_config_t {
-			IP,
 			SQL_PORT,
 			MAX_PLAYERS,
 			PZ_LOCKED,
@@ -107,10 +101,19 @@ class ConfigManager
 			STAIRHOP_DELAY,
 			EXP_FROM_PLAYERS_LEVEL_RANGE,
 			MAX_PACKETS_PER_SECOND,
-			SERVER_SAVE_NOTIFY_DURATION,
-			YELL_MINIMUM_LEVEL,
+			VERSION_MIN,
+			VERSION_MAX,
+			DEPOT_BOXES,
 
 			LAST_INTEGER_CONFIG /* this must be the last one */
+		};
+
+		enum floating_config_t {
+			RATE_MONSTER_HEALTH,
+			RATE_MONSTER_ATTACK,
+			RATE_MONSTER_DEFENSE,
+
+			LAST_FLOATING_CONFIG
 		};
 
 		bool load();
@@ -119,11 +122,22 @@ class ConfigManager
 		const std::string& getString(string_config_t what) const;
 		int32_t getNumber(integer_config_t what) const;
 		bool getBoolean(boolean_config_t what) const;
+		float getFloat(floating_config_t what) const;
+
+		std::string const& setConfigFileLua(const std::string& what) {
+			configFileLua = { what };
+			return configFileLua;
+		};
+		std::string const& getConfigFileLua() const {
+			return configFileLua;
+		};
 
 	private:
+		std::string configFileLua = { "config.lua" };
 		std::string string[LAST_STRING_CONFIG] = {};
 		int32_t integer[LAST_INTEGER_CONFIG] = {};
 		bool boolean[LAST_BOOLEAN_CONFIG] = {};
+		float floating[LAST_FLOATING_CONFIG] = {};
 
 		bool loaded = false;
 };

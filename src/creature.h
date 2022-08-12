@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -44,8 +44,9 @@ enum slots_t : uint8_t {
 	CONST_SLOT_RING = 9,
 	CONST_SLOT_AMMO = 10,
 
+	CONST_SLOT_INBOX = 11,
 	CONST_SLOT_FIRST = CONST_SLOT_HEAD,
-	CONST_SLOT_LAST = CONST_SLOT_AMMO,
+	CONST_SLOT_LAST = CONST_SLOT_INBOX,
 };
 
 struct FindPathParams {
@@ -82,7 +83,7 @@ class FrozenPathingConditionCall
 		bool isInRange(const Position& startPos, const Position& testPos,
 		               const FindPathParams& fpp) const;
 
-	private:
+	protected:
 		Position targetPos;
 };
 
@@ -104,10 +105,10 @@ class Creature : virtual public Thing
 		Creature(const Creature&) = delete;
 		Creature& operator=(const Creature&) = delete;
 
-		Creature* getCreature() override final {
+		Creature* getCreature() final {
 			return this;
 		}
-		const Creature* getCreature() const override final {
+		const Creature* getCreature() const final {
 			return this;
 		}
 		virtual Player* getPlayer() {
@@ -172,13 +173,20 @@ class Creature : virtual public Thing
 			hiddenHealth = b;
 		}
 
-		int32_t getThrowRange() const override final {
+		bool isMoveLocked() const {
+			return moveLocked;
+		}
+		void setMoveLocked(bool locked) {
+			moveLocked = locked;
+		}
+
+		int32_t getThrowRange() const final {
 			return 1;
 		}
 		bool isPushable() const override {
 			return getWalkDelay() <= 0;
 		}
-		bool isRemoved() const override final {
+		bool isRemoved() const final {
 			return isInternalRemoved;
 		}
 		virtual bool canSeeInvisibility() const {
@@ -225,6 +233,12 @@ class Creature : virtual public Thing
 		}
 		virtual int32_t getMaxHealth() const {
 			return healthMax;
+		}
+		uint32_t getMana() const {
+			return mana;
+		}
+		virtual uint32_t getMaxMana() const {
+			return 0;
 		}
 
 		const Outfit_t getCurrentOutfit() const {
@@ -302,6 +316,9 @@ class Creature : virtual public Thing
 		virtual float getDefenseFactor() const {
 			return 1.0f;
 		}
+		virtual uint8_t getSpeechBubble() const {
+			return SPEECHBUBBLE_NONE;
+		}
 
 		bool addCondition(Condition* condition, bool force = false);
 		bool addCombatCondition(Condition* condition);
@@ -330,11 +347,16 @@ class Creature : virtual public Thing
 		}
 
 		virtual void changeHealth(int32_t healthChange, bool sendHealthChange = true);
+		virtual void changeMana(int32_t manaChange);
 
-		void gainHealth(Creature* healer, int32_t healthGain);
+		void gainHealth(Creature* attacker, int32_t healthGain);
 		virtual void drainHealth(Creature* attacker, int32_t damage);
+		virtual void drainMana(Creature* attacker, int32_t manaLoss);
 
 		virtual bool challengeCreature(Creature*) {
+			return false;
+		}
+		virtual bool convinceCreature(Creature*) {
 			return false;
 		}
 
@@ -349,10 +371,11 @@ class Creature : virtual public Thing
 		virtual void onEndCondition(ConditionType_t type);
 		void onTickCondition(ConditionType_t type, bool& bRemove);
 		virtual void onCombatRemoveCondition(Condition* condition);
-		virtual void onAttackedCreature(Creature*, bool = true) {}
+		virtual void onAttackedCreature(Creature*) {}
 		virtual void onAttacked();
 		virtual void onAttackedCreatureDrainHealth(Creature* target, int32_t points);
 		virtual void onTargetCreatureGainHealth(Creature*, int32_t) {}
+		void onAttackedCreatureKilled(Creature* target);
 		virtual bool onKilledCreature(Creature* target, bool lastHit = true);
 		virtual void onGainExperience(uint64_t gainExp, Creature* target);
 		virtual void onAttackedCreatureBlockHit(BlockType_t) {}
@@ -361,9 +384,11 @@ class Creature : virtual public Thing
 		virtual void onAttackedCreatureChangeZone(ZoneType_t zone);
 		virtual void onIdleStatus();
 
-		virtual LightInfo getCreatureLight() const;
+		virtual void getCreatureLight(LightInfo& light) const;
 		virtual void setNormalCreatureLight();
-		void setCreatureLight(LightInfo lightInfo);
+		void setCreatureLight(LightInfo light) {
+			internalLight = light;
+		}
 
 		virtual void onThink(uint32_t interval);
 		void onAttacking(uint32_t interval);
@@ -386,6 +411,7 @@ class Creature : virtual public Thing
 
 		virtual void onCreatureSay(Creature*, SpeakClasses, const std::string&) {}
 
+		virtual void onCreatureConvinced(const Creature*, const Creature*) {}
 		virtual void onPlacedCreature() {}
 
 		virtual bool getCombatValues(int32_t&, int32_t&) {
@@ -401,30 +427,27 @@ class Creature : virtual public Thing
 		void setSkillLoss(bool skillLoss) {
 			this->skillLoss = skillLoss;
 		}
-		void setUseDefense(bool useDefense) {
-			canUseDefense = useDefense;
-		}
 
 		//creature script events
 		bool registerCreatureEvent(const std::string& name);
 		bool unregisterCreatureEvent(const std::string& name);
 
-		Cylinder* getParent() const override final {
+		Cylinder* getParent() const final {
 			return tile;
 		}
-		void setParent(Cylinder* cylinder) override final {
+		void setParent(Cylinder* cylinder) final {
 			tile = static_cast<Tile*>(cylinder);
 			position = tile->getPosition();
 		}
 
-		const Position& getPosition() const override final {
+		const Position& getPosition() const final {
 			return position;
 		}
 
-		Tile* getTile() override final {
+		Tile* getTile() final {
 			return tile;
 		}
-		const Tile* getTile() const override final {
+		const Tile* getTile() const final {
 			return tile;
 		}
 
@@ -495,6 +518,7 @@ class Creature : virtual public Thing
 		uint32_t blockTicks = 0;
 		uint32_t lastStepCost = 1;
 		uint32_t baseSpeed = 220;
+		uint32_t mana = 0;
 		int32_t varSpeed = 0;
 		int32_t health = 1000;
 		int32_t healthMax = 1000;
@@ -520,7 +544,7 @@ class Creature : virtual public Thing
 		bool hasFollowPath = false;
 		bool forceUpdateFollowPath = false;
 		bool hiddenHealth = false;
-		bool canUseDefense = true;
+		bool moveLocked = false;
 
 		//creature script events
 		bool hasEventRegistered(CreatureEventType_t event) const {

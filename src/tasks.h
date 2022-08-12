@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,12 +52,10 @@ class Task
 		}
 
 	protected:
-		std::chrono::system_clock::time_point expiration = SYSTEM_TIME_ZERO;
-
-	private:
 		// Expiration has another meaning for scheduler tasks,
 		// then it is the time the task should be added to the
 		// dispatcher
+		std::chrono::system_clock::time_point expiration = SYSTEM_TIME_ZERO;
 		std::function<void (void)> func;
 };
 
@@ -76,7 +74,7 @@ class Dispatcher : public ThreadHolder<Dispatcher> {
 
 		void threadMain();
 
-	private:
+	protected:
 		std::thread thread;
 		std::mutex taskLock;
 		std::condition_variable taskSignal;

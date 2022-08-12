@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,7 +22,7 @@
 #include "inbox.h"
 #include "tools.h"
 
-Inbox::Inbox(uint16_t type) : Container(type, 30, false, true) {}
+Inbox::Inbox(uint16_t type) : Container(type, 30) {}
 
 ReturnValue Inbox::queryAdd(int32_t, const Thing& thing, uint32_t,
 		uint32_t flags, Creature*) const
@@ -49,7 +49,6 @@ ReturnValue Inbox::queryAdd(int32_t, const Thing& thing, uint32_t,
 
 void Inbox::postAddNotification(Thing* thing, const Cylinder* oldParent, int32_t index, cylinderlink_t)
 {
-	Cylinder* parent = getParent();
 	if (parent != nullptr) {
 		parent->postAddNotification(thing, oldParent, index, LINK_PARENT);
 	}
@@ -57,16 +56,7 @@ void Inbox::postAddNotification(Thing* thing, const Cylinder* oldParent, int32_t
 
 void Inbox::postRemoveNotification(Thing* thing, const Cylinder* newParent, int32_t index, cylinderlink_t)
 {
-	Cylinder* parent = getParent();
 	if (parent != nullptr) {
 		parent->postRemoveNotification(thing, newParent, index, LINK_PARENT);
 	}
-}
-
-Cylinder* Inbox::getParent() const
-{
-	if (parent) {
-		return parent->getParent();
-	}
-	return nullptr;
 }

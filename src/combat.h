@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,9 +36,9 @@ class ValueCallback final : public CallBack
 {
 	public:
 		explicit ValueCallback(formulaType_t type): type(type) {}
-		void getMinMaxValues(Player* player, CombatDamage& damage) const;
+		void getMinMaxValues(Player* player, CombatDamage& damage, bool useCharges) const;
 
-	private:
+	protected:
 		formulaType_t type;
 };
 
@@ -46,12 +46,18 @@ class TileCallback final : public CallBack
 {
 	public:
 		void onTileCombat(Creature* creature, Tile* tile) const;
+
+	protected:
+		formulaType_t type;
 };
 
 class TargetCallback final : public CallBack
 {
 	public:
 		void onTargetCombat(Creature* creature, Creature* target) const;
+
+	protected:
+		formulaType_t type;
 };
 
 struct CombatParams {
@@ -76,6 +82,8 @@ struct CombatParams {
 	bool aggressive = true;
 	bool useCharges = false;
 };
+
+using CombatFunction = std::function<void(Creature*, Creature*, const CombatParams&, CombatDamage*)>;
 
 class MatrixArea
 {
@@ -150,7 +158,7 @@ class MatrixArea
 			return data_[i];
 		}
 
-	private:
+	protected:
 		uint32_t centerX;
 		uint32_t centerY;
 
@@ -180,7 +188,7 @@ class AreaCombat
 		void setupExtArea(const std::list<uint32_t>& list, uint32_t rows);
 		void clear();
 
-	private:
+	protected:
 		enum MatrixOperation_t {
 			MATRIXOPERATION_COPY,
 			MATRIXOPERATION_MIRROR,
@@ -191,7 +199,7 @@ class AreaCombat
 		};
 
 		MatrixArea* createArea(const std::list<uint32_t>& list, uint32_t rows);
-		static void copyArea(const MatrixArea* input, MatrixArea* output, MatrixOperation_t op);
+		void copyArea(const MatrixArea* input, MatrixArea* output, MatrixOperation_t op) const;
 
 		MatrixArea* getArea(const Position& centerPos, const Position& targetPos) const {
 			int32_t dx = Position::getOffsetX(targetPos, centerPos);
@@ -240,6 +248,18 @@ class Combat
 		Combat(const Combat&) = delete;
 		Combat& operator=(const Combat&) = delete;
 
+		static void doCombatHealth(Creature* caster, Creature* target, CombatDamage& damage, const CombatParams& params);
+		static void doCombatHealth(Creature* caster, const Position& position, const AreaCombat* area, CombatDamage& damage, const CombatParams& params);
+
+		static void doCombatMana(Creature* caster, Creature* target, CombatDamage& damage, const CombatParams& params);
+		static void doCombatMana(Creature* caster, const Position& position, const AreaCombat* area, CombatDamage& damage, const CombatParams& params);
+
+		static void doCombatCondition(Creature* caster, Creature* target, const CombatParams& params);
+		static void doCombatCondition(Creature* caster, const Position& position, const AreaCombat* area, const CombatParams& params);
+
+		static void doCombatDispel(Creature* caster, Creature* target, const CombatParams& params);
+		static void doCombatDispel(Creature* caster, const Position& position, const AreaCombat* area, const CombatParams& params);
+
 		static void getCombatArea(const Position& centerPos, const Position& targetPos, const AreaCombat* area, std::forward_list<Tile*>& list);
 
 		static bool isInPvpZone(const Creature* attacker, const Creature* target);
@@ -255,10 +275,7 @@ class Combat
 		static void addDistanceEffect(Creature* caster, const Position& fromPos, const Position& toPos, uint8_t effect);
 
 		void doCombat(Creature* caster, Creature* target) const;
-		void doCombat(Creature* caster, const Position& position) const;
-
-		static void doTargetCombat(Creature* caster, Creature* target, CombatDamage& damage, const CombatParams& params);
-		static void doAreaCombat(Creature* caster, const Position& position, const AreaCombat* area, CombatDamage& damage, const CombatParams& params);
+		void doCombat(Creature* caster, const Position& pos) const;
 
 		bool setCallback(CallBackParam_t key);
 		CallBack* getCallback(CallBackParam_t key);
@@ -270,11 +287,8 @@ class Combat
 		bool hasArea() const {
 			return area != nullptr;
 		}
-		void addCondition(const Condition* condition) {
+		void setCondition(const Condition* condition) {
 			params.conditionList.emplace_front(condition);
-		}
-		void clearConditions() {
-			params.conditionList.clear();
 		}
 		void setPlayerCombatValues(formulaType_t formulaType, double mina, double minb, double maxa, double maxb);
 		void postCombatEffects(Creature* caster, const Position& pos) const {
@@ -285,8 +299,18 @@ class Combat
 			params.origin = origin;
 		}
 
-	private:
-		static void combatTileEffects(const SpectatorVec& spectators, Creature* caster, Tile* tile, const CombatParams& params);
+	protected:
+		static void doCombatDefault(Creature* caster, Creature* target, const CombatParams& params);
+
+		static void CombatFunc(Creature* caster, const Position& pos, const AreaCombat* area, const CombatParams& params, CombatFunction func, CombatDamage* data);
+
+		static void CombatHealthFunc(Creature* caster, Creature* target, const CombatParams& params, CombatDamage* data);
+		static void CombatManaFunc(Creature* caster, Creature* target, const CombatParams& params, CombatDamage* damage);
+		static void CombatConditionFunc(Creature* caster, Creature* target, const CombatParams& params, CombatDamage* data);
+		static void CombatDispelFunc(Creature* caster, Creature* target, const CombatParams& params, CombatDamage* data);
+		static void CombatNullFunc(Creature* caster, Creature* target, const CombatParams& params, CombatDamage* data);
+
+		static void combatTileEffects(const SpectatorHashSet& spectators, Creature* caster, Tile* tile, const CombatParams& params);
 		CombatDamage getCombatDamage(Creature* creature, Creature* target) const;
 
 		//configureable
@@ -307,10 +331,10 @@ class MagicField final : public Item
 	public:
 		explicit MagicField(uint16_t type) : Item(type), createTime(OTSYS_TIME()) {}
 
-		MagicField* getMagicField() override {
+		MagicField* getMagicField() final {
 			return this;
 		}
-		const MagicField* getMagicField() const override {
+		const MagicField* getMagicField() const final {
 			return this;
 		}
 

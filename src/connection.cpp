@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,6 +23,8 @@
 #include "connection.h"
 #include "outputmessage.h"
 #include "protocol.h"
+#include "protocolgame.h"
+
 #include "scheduler.h"
 #include "server.h"
 
@@ -116,7 +118,7 @@ void Connection::accept()
 {
 	std::lock_guard<std::recursive_mutex> lockClass(connectionLock);
 	try {
-		readTimer.expires_from_now(boost::posix_time::seconds(CONNECTION_READ_TIMEOUT));
+		readTimer.expires_from_now(boost::posix_time::seconds(Connection::read_timeout));
 		readTimer.async_wait(std::bind(&Connection::handleTimeout, std::weak_ptr<Connection>(shared_from_this()), std::placeholders::_1));
 
 		// Read size of the first packet
@@ -134,18 +136,23 @@ void Connection::parseHeader(const boost::system::error_code& error)
 	std::lock_guard<std::recursive_mutex> lockClass(connectionLock);
 	readTimer.cancel();
 
-	if (error) {
+	int32_t size = msg.decodeHeader();
+	if (error || size <= 0 || size >= NETWORKMESSAGE_MAXSIZE - 16) {
 		close(FORCE_CLOSE);
-		return;
-	} else if (connectionState != CONNECTION_STATE_OPEN) {
+	}
+
+	if (connectionState != CONNECTION_STATE_OPEN) {
 		return;
 	}
 
 	uint32_t timePassed = std::max<uint32_t>(1, (time(nullptr) - timeConnected) + 1);
 	if ((++packetsSent / timePassed) > static_cast<uint32_t>(g_config.getNumber(ConfigManager::MAX_PACKETS_PER_SECOND))) {
-		std::cout << convertIPToString(getIP()) << " disconnected for exceeding packet per second limit." << std::endl;
-		close();
-		return;
+		const auto client = std::dynamic_pointer_cast<ProtocolGame>(protocol);
+		if (client && !client->m_spectator) {
+			std::cout << convertIPToString(getIP()) << " disconnected for exceeding packet per second limit." << std::endl;
+			close();
+			return;
+		}
 	}
 
 	if (timePassed > 2) {
@@ -153,14 +160,8 @@ void Connection::parseHeader(const boost::system::error_code& error)
 		packetsSent = 0;
 	}
 
-	uint16_t size = msg.getLengthHeader();
-	if (size == 0 || size >= NETWORKMESSAGE_MAXSIZE - 16) {
-		close(FORCE_CLOSE);
-		return;
-	}
-
 	try {
-		readTimer.expires_from_now(boost::posix_time::seconds(CONNECTION_READ_TIMEOUT));
+		readTimer.expires_from_now(boost::posix_time::seconds(Connection::read_timeout));
 		readTimer.async_wait(std::bind(&Connection::handleTimeout, std::weak_ptr<Connection>(shared_from_this()),
 		                                    std::placeholders::_1));
 
@@ -181,8 +182,9 @@ void Connection::parsePacket(const boost::system::error_code& error)
 
 	if (error) {
 		close(FORCE_CLOSE);
-		return;
-	} else if (connectionState != CONNECTION_STATE_OPEN) {
+	}
+
+	if (connectionState != CONNECTION_STATE_OPEN) {
 		return;
 	}
 
@@ -213,16 +215,16 @@ void Connection::parsePacket(const boost::system::error_code& error)
 				return;
 			}
 		} else {
-			msg.skipBytes(1); // Skip protocol ID
+			msg.skipBytes(1);    // Skip protocol ID
 		}
 
 		protocol->onRecvFirstMessage(msg);
 	} else {
-		protocol->onRecvMessage(msg); // Send the packet to the current protocol
+		protocol->onRecvMessage(msg);    // Send the packet to the current protocol
 	}
 
 	try {
-		readTimer.expires_from_now(boost::posix_time::seconds(CONNECTION_READ_TIMEOUT));
+		readTimer.expires_from_now(boost::posix_time::seconds(Connection::read_timeout));
 		readTimer.async_wait(std::bind(&Connection::handleTimeout, std::weak_ptr<Connection>(shared_from_this()),
 		                                    std::placeholders::_1));
 
@@ -252,9 +254,13 @@ void Connection::send(const OutputMessage_ptr& msg)
 
 void Connection::internalSend(const OutputMessage_ptr& msg)
 {
+	if (msg->isBroadcastMsg()) {
+		dispatchBroadcastMessage(msg);
+	}
+	
 	protocol->onSendMessage(msg);
 	try {
-		writeTimer.expires_from_now(boost::posix_time::seconds(CONNECTION_WRITE_TIMEOUT));
+		writeTimer.expires_from_now(boost::posix_time::seconds(Connection::write_timeout));
 		writeTimer.async_wait(std::bind(&Connection::handleTimeout, std::weak_ptr<Connection>(shared_from_this()),
 		                                     std::placeholders::_1));
 
@@ -269,7 +275,7 @@ void Connection::internalSend(const OutputMessage_ptr& msg)
 
 uint32_t Connection::getIP()
 {
-	std::lock_guard<std::recursive_mutex> lockClass(connectionLock);
+	// std::lock_guard<std::recursive_mutex> lockClass(connectionLock); /* try with it */
 
 	// IP-address is expressed in network byte order
 	boost::system::error_code error;
@@ -280,6 +286,29 @@ uint32_t Connection::getIP()
 
 	return htonl(endpoint.address().to_v4().to_ulong());
 }
+
+void Connection::dispatchBroadcastMessage(const OutputMessage_ptr& msg)
+{
+	auto msgCopy = OutputMessagePool::getOutputMessage();
+	msgCopy->append(msg);
+	socket.get_io_service().dispatch(std::bind(&Connection::broadcastMessage, shared_from_this(), msgCopy));
+}
+void Connection::broadcastMessage(OutputMessage_ptr msg)
+{
+	std::lock_guard<std::recursive_mutex> lockClass(connectionLock);
+	const auto client = std::dynamic_pointer_cast<ProtocolGame>(protocol);
+	if (client) {
+		std::lock_guard<decltype(client->liveCastLock)> lockGuard(client->liveCastLock);
+
+		const auto& spectators = client->getLiveCastSpectators();
+		for (const ProtocolSpectator_ptr& spectator : spectators) {
+			auto newMsg = OutputMessagePool::getOutputMessage();
+			newMsg->append(msg);
+			spectator->send(std::move(newMsg));
+		}
+	}
+}
+
 
 void Connection::onWriteOperation(const boost::system::error_code& error)
 {

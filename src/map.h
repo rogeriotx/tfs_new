@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,7 +73,7 @@ class AStarNodes
 		int_fast32_t closedNodes;
 };
 
-using SpectatorCache = std::map<Position, SpectatorVec>;
+using SpectatorCache = std::map<Position, SpectatorHashSet>;
 
 static constexpr int32_t FLOOR_BITS = 3;
 static constexpr int32_t FLOOR_SIZE = (1 << FLOOR_BITS);
@@ -127,10 +127,9 @@ class QTreeNode
 		QTreeLeafNode* createLeaf(uint32_t x, uint32_t y, uint32_t level);
 
 	protected:
-		bool leaf = false;
-
-	private:
 		QTreeNode* child[4] = {};
+
+		bool leaf = false;
 
 		friend class Map;
 };
@@ -153,7 +152,7 @@ class QTreeLeafNode final : public QTreeNode
 		void addCreature(Creature* c);
 		void removeCreature(Creature* c);
 
-	private:
+	protected:
 		static bool newLeaf;
 		QTreeLeafNode* leafS = nullptr;
 		QTreeLeafNode* leafE = nullptr;
@@ -220,12 +219,11 @@ class Map
 
 		void moveCreature(Creature& creature, Tile& newTile, bool forceTeleport = false);
 
-		void getSpectators(SpectatorVec& spectators, const Position& centerPos, bool multifloor = false, bool onlyPlayers = false,
-		                   int32_t minRangeX = 0, int32_t maxRangeX = 0,
-		                   int32_t minRangeY = 0, int32_t maxRangeY = 0);
+		void getSpectators(SpectatorHashSet& spectators, const Position& centerPos, bool multifloor = false, bool onlyPlayers = false,
+						   int32_t minRangeX = 0, int32_t maxRangeX = 0,
+						   int32_t minRangeY = 0, int32_t maxRangeY = 0);
 
 		void clearSpectatorCache();
-		void clearPlayersSpectatorCache();
 
 		/**
 		  * Checks if you can throw an object to that position
@@ -237,7 +235,7 @@ class Map
 		  *	\returns The result if you can throw there or not
 		  */
 		bool canThrowObjectTo(const Position& fromPos, const Position& toPos, bool checkLineOfSight = true,
-		                      int32_t rangex = Map::maxClientViewportX, int32_t rangey = Map::maxClientViewportY) const;
+							  int32_t rangex = Map::maxClientViewportX, int32_t rangey = Map::maxClientViewportY) const;
 
 		/**
 		  * Checks if path is clear from fromPos to toPos
@@ -253,7 +251,7 @@ class Map
 		const Tile* canWalkTo(const Creature& creature, const Position& pos) const;
 
 		bool getPathMatching(const Creature& creature, std::forward_list<Direction>& dirList,
-		                     const FrozenPathingConditionCall& pathCondition, const FindPathParams& fpp) const;
+							 const FrozenPathingConditionCall& pathCondition, const FindPathParams& fpp) const;
 
 		std::map<std::string, Position> waypoints;
 
@@ -264,8 +262,7 @@ class Map
 		Spawns spawns;
 		Towns towns;
 		Houses houses;
-
-	private:
+	protected:
 		SpectatorCache spectatorCache;
 		SpectatorCache playersSpectatorCache;
 
@@ -278,10 +275,10 @@ class Map
 		uint32_t height = 0;
 
 		// Actually scans the map for spectators
-		void getSpectatorsInternal(SpectatorVec& spectators, const Position& centerPos,
-		                           int32_t minRangeX, int32_t maxRangeX,
-		                           int32_t minRangeY, int32_t maxRangeY,
-		                           int32_t minRangeZ, int32_t maxRangeZ, bool onlyPlayers) const;
+		void getSpectatorsInternal(SpectatorHashSet& spectators, const Position& centerPos,
+								   int32_t minRangeX, int32_t maxRangeX,
+								   int32_t minRangeY, int32_t maxRangeY,
+								   int32_t minRangeZ, int32_t maxRangeZ, bool onlyPlayers) const;
 
 		friend class Game;
 		friend class IOMap;

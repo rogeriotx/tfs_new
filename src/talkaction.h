@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,9 +24,6 @@
 #include "baseevents.h"
 #include "const.h"
 
-class TalkAction;
-using TalkAction_ptr = std::unique_ptr<TalkAction>;
-
 enum TalkActionResult_t {
 	TALKACTION_CONTINUE,
 	TALKACTION_BREAK,
@@ -43,28 +40,22 @@ class TalkAction : public Event
 		const std::string& getWords() const {
 			return words;
 		}
-		void setWords(std::string word) {
-			words = word;
-		}
-		std::string getSeparator() const {
+		char getSeparator() const {
 			return separator;
-		}
-		void setSeparator(std::string sep) {
-			separator = sep;
 		}
 
 		//scripting
 		bool executeSay(Player* player, const std::string& param, SpeakClasses type) const;
 		//
 
-	private:
+	protected:
 		std::string getScriptEventName() const override;
 
 		std::string words;
-		std::string separator = "\"";
+		char separator = '"';
 };
 
-class TalkActions final : public BaseEvents
+class TalkActions : public BaseEvents
 {
 	public:
 		TalkActions();
@@ -76,16 +67,14 @@ class TalkActions final : public BaseEvents
 
 		TalkActionResult_t playerSaySpell(Player* player, SpeakClasses type, const std::string& words) const;
 
-		bool registerLuaEvent(TalkAction* event);
-		void clear(bool fromLua) override final;
+	protected:
+		LuaScriptInterface& getScriptInterface() final;
+		std::string getScriptBaseName() const final;
+		Event* getEvent(const std::string& nodeName) final;
+		bool registerEvent(Event* event, const pugi::xml_node& node) final;
+		void clear() final;
 
-	private:
-		LuaScriptInterface& getScriptInterface() override;
-		std::string getScriptBaseName() const override;
-		Event_ptr getEvent(const std::string& nodeName) override;
-		bool registerEvent(Event_ptr event, const pugi::xml_node& node) override;
-
-		std::map<std::string, TalkAction> talkActions;
+		std::forward_list<TalkAction> talkActions;
 
 		LuaScriptInterface scriptInterface;
 };

@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,33 +33,39 @@ using Identifier = std::array<char, 4>;
 
 struct Node
 {
+	Node() = default;
+	Node(Node&&) = default;
+	Node& operator=(Node&&) = default;
+	Node(const Node&) = delete;
+	Node& operator=(const Node&) = delete;
+
 	using ChildrenVector = std::vector<Node>;
 
 	ChildrenVector children;
-	ContentIt      propsBegin;
-	ContentIt      propsEnd;
-	uint8_t           type;
+	ContentIt propsBegin;
+	ContentIt propsEnd;
+	uint8_t type;
 	enum NodeChar: uint8_t
 	{
 		ESCAPE = 0xFD,
 		START  = 0xFE,
-		END    = 0xFF,
+		END = 0xFF,
 	};
 };
 
 struct LoadError : std::exception {
-	const char* what() const noexcept override = 0;
+	const char* what() const noexcept = 0;
 };
 
-struct InvalidOTBFormat final : LoadError {
-	const char* what() const noexcept override {
+struct InvalidOTBFormat : LoadError {
+	const char* what() const noexcept final {
 		return "Invalid OTBM file format";
 	}
 };
 
 class Loader {
-	MappedFile     fileContents;
-	Node              root;
+	MappedFile fileContents;
+	Node root;
 	std::vector<char> propBuffer;
 public:
 	Loader(const std::string& fileName, const Identifier& acceptedIdentifier);
@@ -68,6 +74,18 @@ public:
 };
 
 } //namespace OTB
+
+enum FILELOADER_ERRORS {
+	ERROR_NONE,
+	ERROR_INVALID_FILE_VERSION,
+	ERROR_CAN_NOT_OPEN,
+	ERROR_CAN_NOT_CREATE,
+	ERROR_EOF,
+	ERROR_SEEK_ERROR,
+	ERROR_NOT_OPEN,
+	ERROR_INVALID_NODE,
+	ERROR_INVALID_FORMAT,
+};
 
 class PropStream
 {
@@ -120,7 +138,7 @@ class PropStream
 			return true;
 		}
 
-	private:
+	protected:
 		const char* p = nullptr;
 		const char* end = nullptr;
 };
@@ -160,7 +178,7 @@ class PropWriteStream
 			std::copy(str.begin(), str.end(), std::back_inserter(buffer));
 		}
 
-	private:
+	protected:
 		std::vector<char> buffer;
 };
 

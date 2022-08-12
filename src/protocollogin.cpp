@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 #include "protocollogin.h"
 
 #include "outputmessage.h"
+#include "rsa.h"
 #include "tasks.h"
 
 #include "configmanager.h"
@@ -29,9 +30,9 @@
 #include "ban.h"
 #include <iomanip>
 #include "game.h"
-#include "tools.h"
 
 extern ConfigManager g_config;
+extern IPList serverIPs;
 extern Game g_game;
 
 void ProtocolLogin::disconnectClient(const std::string& message)
@@ -40,11 +41,61 @@ void ProtocolLogin::disconnectClient(const std::string& message)
 	output->addByte(0x0A);
 	output->addString(message);
 	send(output);
+
 	disconnect();
 }
 
+void ProtocolLogin::getCastingStreamsList()
+{
+	uint32_t serverIp = serverIPs[0].first;
+	for (uint32_t i = 0; i < serverIPs.size(); i++) {
+		if ((serverIPs[i].first & serverIPs[i].second) == (getConnection()->getIP() & serverIPs[i].second)) {
+			serverIp = serverIPs[i].first;
+			break;
+		}
+	}	
+	auto output = OutputMessagePool::getOutputMessage();
+	
+	const std::string& motd = g_config.getString(ConfigManager::MOTD);
+	if (!motd.empty()) {
+		output->addByte(0x14);
+
+		std::ostringstream ss;
+		ss << g_game.getMotdNum() << "\n" << motd;
+		output->addString(ss.str());
+	}
+	
+	output->addByte(0x64);
+	
+	const auto& casts = ProtocolGame::getLiveCasts();
+	output->addByte(casts.size());
+	for (const auto& cast : casts) 
+	{
+		std::ostringstream entry;
+		entry << cast.first->getName() << " [" << cast.second->getSpectatorCount() << (cast.second->isPasswordProtected() ? "*]" : "]");
+		output->addString(entry.str());
+		entry.str(std::string());
+		output->addString("Level " + std::to_string(cast.first->getLevel()));
+		output->add<uint32_t>(serverIp);
+		output->add<uint16_t>(g_config.getNumber(ConfigManager::GAME_PORT));
+	}
+		
+	output->add<uint16_t>(0);
+	send(std::move(output));
+	disconnect();
+}
+
+
 void ProtocolLogin::getCharacterList(const std::string& accountName, const std::string& password)
 {
+	uint32_t serverIp = serverIPs[0].first;
+	for (uint32_t i = 0; i < serverIPs.size(); i++) {
+		if ((serverIPs[i].first & serverIPs[i].second) == (getConnection()->getIP() & serverIPs[i].second)) {
+			serverIp = serverIPs[i].first;
+			break;
+		}
+	}
+
 	Account account;
 	if (!IOLoginData::loginserverAuthentication(accountName, password, account)) {
 		disconnectClient("Account name or password is not correct.");
@@ -71,14 +122,9 @@ void ProtocolLogin::getCharacterList(const std::string& accountName, const std::
 	uint8_t size = std::min<size_t>(std::numeric_limits<uint8_t>::max(), account.characters.size());
 	output->addByte(size);
 	for (uint8_t i = 0; i < size; i++) {
-		const std::string& character = account.characters[i];
-		output->addString(character);
-		if (g_config.getBoolean(ConfigManager::ONLINE_OFFLINE_CHARLIST)) {
-			output->addString(g_game.getPlayerByName(character) ? "Online" : "Offline");
-		} else {
-			output->addString(g_config.getString(ConfigManager::SERVER_NAME));
-		}
-		output->add<uint32_t>(g_config.getNumber(ConfigManager::IP));
+		output->addString(account.characters[i]);
+		output->addString(g_config.getString(ConfigManager::SERVER_NAME));
+		output->add<uint32_t>(serverIp);
 		output->add<uint16_t>(g_config.getNumber(ConfigManager::GAME_PORT));
 	}
 
@@ -101,7 +147,8 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 		return;
 	}
 
-	msg.skipBytes(2); // client OS
+	/*uint16_t clientos = */
+	msg.get<uint16_t>();
 
 	uint16_t version = msg.get<uint16_t>();
 	msg.skipBytes(12);
@@ -114,7 +161,7 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 
 	if (version <= 760) {
 		std::ostringstream ss;
-		ss << "Only clients with protocol " << CLIENT_VERSION_STR << " allowed!";
+		ss << "Only clients with protocol " << g_config.getString(ConfigManager::VERSION_STR) << " allowed!";
 		disconnectClient(ss.str());
 		return;
 	}
@@ -124,17 +171,17 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 		return;
 	}
 
-	xtea::key key;
+	uint32_t key[4];
 	key[0] = msg.get<uint32_t>();
 	key[1] = msg.get<uint32_t>();
 	key[2] = msg.get<uint32_t>();
 	key[3] = msg.get<uint32_t>();
 	enableXTEAEncryption();
-	setXTEAKey(std::move(key));
+	setXTEAKey(key);
 
-	if (version < CLIENT_VERSION_MIN || version > CLIENT_VERSION_MAX) {
+	if (version < g_config.getNumber(ConfigManager::VERSION_MIN) || version > g_config.getNumber(ConfigManager::VERSION_MAX)) {
 		std::ostringstream ss;
-		ss << "Only clients with protocol " << CLIENT_VERSION_STR << " allowed!";
+		ss << "Only clients with protocol " << g_config.getString(ConfigManager::VERSION_STR) << " allowed!";
 		disconnectClient(ss.str());
 		return;
 	}
@@ -165,19 +212,19 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 		disconnectClient(ss.str());
 		return;
 	}
-
+	
 	std::string accountName = msg.getString();
-	if (accountName.empty()) {
-		disconnectClient("Invalid account name.");
-		return;
-	}
-
 	std::string password = msg.getString();
-	if (password.empty()) {
-		disconnectClient("Invalid password.");
+	
+	auto thisPtr = std::static_pointer_cast<ProtocolLogin>(shared_from_this());
+	if (accountName.empty()) 
+	{		
+		if (!g_config.getBoolean(ConfigManager::ENABLE_LIVE_CASTING)) 
+			disconnectClient("Cast System is disabled.");
+		else
+			g_dispatcher.addTask(createTask(std::bind(&ProtocolLogin::getCastingStreamsList, thisPtr)));
 		return;
 	}
-
-	auto thisPtr = std::static_pointer_cast<ProtocolLogin>(shared_from_this());
+	
 	g_dispatcher.addTask(createTask(std::bind(&ProtocolLogin::getCharacterList, thisPtr, accountName, password)));
 }

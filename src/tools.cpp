@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -184,51 +184,6 @@ std::string transformToSHA1(const std::string& input)
 		hexstring[index + 1] = hexDigits[byte & 15];
 	}
 	return std::string(hexstring, 40);
-}
-
-std::string generateToken(const std::string& key, uint32_t ticks)
-{
-	// generate message from ticks
-	std::string message(8, 0);
-	for (uint8_t i = 8; --i; ticks >>= 8) {
-		message[i] = static_cast<char>(ticks & 0xFF);
-	}
-
-	// hmac key pad generation
-	std::string iKeyPad(64, 0x36), oKeyPad(64, 0x5C);
-	for (uint8_t i = 0; i < key.length(); ++i) {
-		iKeyPad[i] ^= key[i];
-		oKeyPad[i] ^= key[i];
-	}
-
-	oKeyPad.reserve(84);
-
-	// hmac concat inner pad with message
-	iKeyPad.append(message);
-
-	// hmac first pass
-	message.assign(transformToSHA1(iKeyPad));
-
-	// hmac concat outer pad with message, conversion from hex to int needed
-	for (uint8_t i = 0; i < message.length(); i += 2) {
-		oKeyPad.push_back(static_cast<char>(std::strtoul(message.substr(i, 2).c_str(), nullptr, 16)));
-	}
-
-	// hmac second pass
-	message.assign(transformToSHA1(oKeyPad));
-
-	// calculate hmac offset
-	uint32_t offset = static_cast<uint32_t>(std::strtoul(message.substr(39, 1).c_str(), nullptr, 16) & 0xF);
-
-	// get truncated hash
-	uint32_t truncHash = static_cast<uint32_t>(std::strtoul(message.substr(2 * offset, 8).c_str(), nullptr, 16)) & 0x7FFFFFFF;
-	message.assign(std::to_string(truncHash));
-
-	// return only last AUTHENTICATOR_DIGITS (default 6) digits, also asserts exactly 6 digits
-	uint32_t hashLen = message.length();
-	message.assign(message.substr(hashLen - std::min(hashLen, AUTHENTICATOR_DIGITS)));
-	message.insert(0, AUTHENTICATOR_DIGITS - std::min(hashLen, AUTHENTICATOR_DIGITS), '0');
-	return message;
 }
 
 void replaceString(std::string& str, const std::string& sought, const std::string& replacement)
@@ -505,120 +460,167 @@ using WeaponActionNames = std::unordered_map<std::string, WeaponAction_t>;
 using SkullNames = std::unordered_map<std::string, Skulls_t>;
 
 MagicEffectNames magicEffectNames = {
-	{"redspark",		CONST_ME_DRAWBLOOD},
-	{"bluebubble",		CONST_ME_LOSEENERGY},
-	{"poff",		CONST_ME_POFF},
-	{"yellowspark",		CONST_ME_BLOCKHIT},
-	{"explosionarea",	CONST_ME_EXPLOSIONAREA},
-	{"explosion",		CONST_ME_EXPLOSIONHIT},
-	{"firearea",		CONST_ME_FIREAREA},
-	{"yellowbubble",	CONST_ME_YELLOW_RINGS},
-	{"greenbubble",		CONST_ME_GREEN_RINGS},
-	{"blackspark",		CONST_ME_HITAREA},
-	{"teleport",		CONST_ME_TELEPORT},
-	{"energy",		CONST_ME_ENERGYHIT},
-	{"blueshimmer",		CONST_ME_MAGIC_BLUE},
-	{"redshimmer",		CONST_ME_MAGIC_RED},
-	{"greenshimmer",	CONST_ME_MAGIC_GREEN},
-	{"fire",		CONST_ME_HITBYFIRE},
-	{"greenspark",		CONST_ME_HITBYPOISON},
-	{"mortarea",		CONST_ME_MORTAREA},
-	{"greennote",		CONST_ME_SOUND_GREEN},
-	{"rednote",		CONST_ME_SOUND_RED},
-	{"poison",		CONST_ME_POISONAREA},
-	{"yellownote",		CONST_ME_SOUND_YELLOW},
-	{"purplenote",		CONST_ME_SOUND_PURPLE},
-	{"bluenote",		CONST_ME_SOUND_BLUE},
-	{"whitenote",		CONST_ME_SOUND_WHITE},
-	{"bubbles",		CONST_ME_BUBBLES},
-	{"dice",		CONST_ME_CRAPS},
-	{"giftwraps",		CONST_ME_GIFT_WRAPS},
-	{"yellowfirework",	CONST_ME_FIREWORK_YELLOW},
-	{"redfirework",		CONST_ME_FIREWORK_RED},
-	{"bluefirework",	CONST_ME_FIREWORK_BLUE},
-	{"stun",		CONST_ME_STUN},
-	{"sleep",		CONST_ME_SLEEP},
-	{"watercreature",	CONST_ME_WATERCREATURE},
-	{"groundshaker",	CONST_ME_GROUNDSHAKER},
-	{"hearts",		CONST_ME_HEARTS},
-	{"fireattack",		CONST_ME_FIREATTACK},
-	{"energyarea",		CONST_ME_ENERGYAREA},
-	{"smallclouds",		CONST_ME_SMALLCLOUDS},
-	{"holydamage",		CONST_ME_HOLYDAMAGE},
-	{"bigclouds",		CONST_ME_BIGCLOUDS},
-	{"icearea",		CONST_ME_ICEAREA},
-	{"icetornado",		CONST_ME_ICETORNADO},
-	{"iceattack",		CONST_ME_ICEATTACK},
-	{"stones",		CONST_ME_STONES},
-	{"smallplants",		CONST_ME_SMALLPLANTS},
-	{"carniphila",		CONST_ME_CARNIPHILA},
-	{"purpleenergy",	CONST_ME_PURPLEENERGY},
-	{"yellowenergy",	CONST_ME_YELLOWENERGY},
-	{"holyarea",		CONST_ME_HOLYAREA},
-	{"bigplants",		CONST_ME_BIGPLANTS},
-	{"cake",		CONST_ME_CAKE},
-	{"giantice",		CONST_ME_GIANTICE},
-	{"watersplash",		CONST_ME_WATERSPLASH},
-	{"plantattack",		CONST_ME_PLANTATTACK},
-	{"tutorialarrow",	CONST_ME_TUTORIALARROW},
-	{"tutorialsquare",	CONST_ME_TUTORIALSQUARE},
+	{"assassin",			CONST_ME_ASSASSIN},
+	{"bluefireworks",		CONST_ME_BLUE_FIREWORKS },
+	{"bluebubble",			CONST_ME_LOSEENERGY},
+	{"blackspark",			CONST_ME_HITAREA},
+	{"blueshimmer",			CONST_ME_MAGIC_BLUE},
+	{"bluenote",			CONST_ME_SOUND_BLUE},
+	{"bubbles",				CONST_ME_BUBBLES},
+	{"bluefirework",		CONST_ME_FIREWORK_BLUE},
+	{"bigclouds",			CONST_ME_BIGCLOUDS},
+	{"bigplants",			CONST_ME_BIGPLANTS},
+	{"bloodysteps",			CONST_ME_BLOODYSTEPS},
+	{"bats",				CONST_ME_BATS},
+	{"blueenergyspark",		CONST_ME_BLUE_ENERGY_SPARK },
+	{"blueghost",			CONST_ME_BLUE_GHOST },
+	{"blacksmoke",			CONST_ME_BLACKSMOKE},
+	{"carniphila",			CONST_ME_CARNIPHILA},
+	{"cake",				CONST_ME_CAKE},
+	{"confettihorizontal",	CONST_ME_CONFETTI_HORIZONTAL},
+	{"confettivertical",	CONST_ME_CONFETTI_VERTICAL},
+	{"criticaldagame",		CONST_ME_CRITICAL_DAMAGE},
+	{"dice",				CONST_ME_CRAPS},
+	{"dragonhead",			CONST_ME_DRAGONHEAD},
+	{"explosionarea",		CONST_ME_EXPLOSIONAREA},
+	{"explosion",			CONST_ME_EXPLOSIONHIT},
+	{"energy",				CONST_ME_ENERGYHIT},
+	{"energyarea",			CONST_ME_ENERGYAREA},
+	{"earlythunder",		CONST_ME_EARLY_THUNDER },
+	{"fire",				CONST_ME_HITBYFIRE},
+	{"firearea",			CONST_ME_FIREAREA},
+	{"fireattack",			CONST_ME_FIREATTACK},
+	{"ferumbras",			CONST_ME_FERUMBRAS},
+	{"greenspark",			CONST_ME_HITBYPOISON},
+	{"greenbubble",			CONST_ME_GREEN_RINGS},
+	{"greennote",			CONST_ME_SOUND_GREEN},
+	{"greenshimmer",		CONST_ME_MAGIC_GREEN},
+	{"giftwraps",			CONST_ME_GIFT_WRAPS},
+	{"groundshaker",		CONST_ME_GROUNDSHAKER},
+	{"giantice",			CONST_ME_GIANTICE},
+	{"greensmoke",			CONST_ME_GREENSMOKE},
+	{"greenenergyspark",	CONST_ME_GREEN_ENERGY_SPARK },
+	{"greenfireworks",		CONST_ME_GREEN_FIREWORKS },
+	{"hearts",				CONST_ME_HEARTS},
+	{"holydamage",			CONST_ME_HOLYDAMAGE},
+	{"holyarea",			CONST_ME_HOLYAREA},
+	{"icearea",				CONST_ME_ICEAREA},
+	{"icetornado",			CONST_ME_ICETORNADO},
+	{"iceattack",			CONST_ME_ICEATTACK},
+	{"insects",				CONST_ME_INSECTS},
+	{"mortarea",			CONST_ME_MORTAREA},
 	{"mirrorhorizontal",	CONST_ME_MIRRORHORIZONTAL},
-	{"mirrorvertical",	CONST_ME_MIRRORVERTICAL},
-	{"skullhorizontal",	CONST_ME_SKULLHORIZONTAL},
-	{"skullvertical",	CONST_ME_SKULLVERTICAL},
-	{"assassin",		CONST_ME_ASSASSIN},
-	{"stepshorizontal",	CONST_ME_STEPSHORIZONTAL},
-	{"bloodysteps",		CONST_ME_BLOODYSTEPS},
-	{"stepsvertical",	CONST_ME_STEPSVERTICAL},
-	{"yalaharighost",	CONST_ME_YALAHARIGHOST},
-	{"bats",		CONST_ME_BATS},
-	{"smoke",		CONST_ME_SMOKE},
-	{"insects",		CONST_ME_INSECTS},
-	{"dragonhead",		CONST_ME_DRAGONHEAD},
+	{"mirrorvertical",		CONST_ME_MIRRORVERTICAL},
+	{"magicpowder",			CONST_ME_MAGIC_POWDER },
+	{"orcshaman",			CONST_ME_ORCSHAMAN},
+	{"orcshamanfire",		CONST_ME_ORCSHAMAN_FIRE},
+	{"orangeenergyspark",	CONST_ME_ORANGE_ENERGY_SPARK },
+	{"orangefireworks",		CONST_ME_ORANGE_FIREWORKS },
+	{"poff",				CONST_ME_POFF},
+	{"poison",				CONST_ME_POISONAREA},
+	{"purplenote",			CONST_ME_SOUND_PURPLE},
+	{"purpleenergy",		CONST_ME_PURPLEENERGY},
+	{"plantattack",			CONST_ME_PLANTATTACK},
+	{"plugingfish",			CONST_ME_PLUNGING_FISH},
+	{"purplesmoke",			CONST_ME_PURPLESMOKE},
+	{"pixieexplosion",		CONST_ME_PIXIE_EXPLOSION },
+	{"pixiecoming",			CONST_ME_PIXIE_COMING },
+	{"pixiegoing",			CONST_ME_PIXIE_GOING },
+	{"pinkbeam",			CONST_ME_PINK_BEAM },
+	{"pinkvortex",			CONST_ME_PINK_VORTEX },
+	{"pinkenergyspark",		CONST_ME_PINK_ENERGY_SPARK },
+	{"pinkfireworks",		CONST_ME_PINK_FIREWORKS },
+	{"redspark",			CONST_ME_DRAWBLOOD},
+	{"redshimmer",			CONST_ME_MAGIC_RED},
+	{"rednote",				CONST_ME_SOUND_RED},
+	{"redfirework",			CONST_ME_FIREWORK_RED},
+	{"redsmoke",			CONST_ME_REDSMOKE},
+	{"ragiazbonecapsule",	CONST_ME_RAGIAZ_BONECAPSULE},
+	{"stun",				CONST_ME_STUN},
+	{"sleep",				CONST_ME_SLEEP},
+	{"smallclouds",			CONST_ME_SMALLCLOUDS},
+	{"stones",				CONST_ME_STONES},
+	{"smallplants",			CONST_ME_SMALLPLANTS},
+	{"skullhorizontal",		CONST_ME_SKULLHORIZONTAL},
+	{"skullvertical",		CONST_ME_SKULLVERTICAL},
+	{"stepshorizontal",		CONST_ME_STEPSHORIZONTAL},
+	{"stepsvertical",		CONST_ME_STEPSVERTICAL},
+	{"smoke",				CONST_ME_SMOKE},
+	{"storm",				CONST_ME_STORM },
+	{"stonestorm",			CONST_ME_STONE_STORM },
+	{"teleport",			CONST_ME_TELEPORT},
+	{"tutorialarrow",		CONST_ME_TUTORIALARROW},
+	{"tutorialsquare",		CONST_ME_TUTORIALSQUARE},
+	{"thunder",				CONST_ME_THUNDER},
+	{"treasuremap",			CONST_ME_TREASURE_MAP },
+	{"yellowspark",			CONST_ME_BLOCKHIT},
+	{"yellowbubble",		CONST_ME_YELLOW_RINGS},
+	{"yellownote",			CONST_ME_SOUND_YELLOW},
+	{"yellowfirework",		CONST_ME_FIREWORK_YELLOW},
+	{"yellowenergy",		CONST_ME_YELLOWENERGY},
+	{"yalaharighost",		CONST_ME_YALAHARIGHOST},
+	{"yellowsmoke",			CONST_ME_YELLOWSMOKE},
+	{"yellowenergyspark",	CONST_ME_YELLOW_ENERGY_SPARK },
+	{"whitenote",			CONST_ME_SOUND_WHITE},
+	{"watercreature",		CONST_ME_WATERCREATURE},
+	{"watersplash",			CONST_ME_WATERSPLASH},
+	{"whiteenergyspark",	CONST_ME_WHITE_ENERGY_SPARK },
 };
-
 ShootTypeNames shootTypeNames = {
-	{"spear",		CONST_ANI_SPEAR},
-	{"bolt",		CONST_ANI_BOLT},
-	{"arrow",		CONST_ANI_ARROW},
-	{"fire",		CONST_ANI_FIRE},
-	{"energy",		CONST_ANI_ENERGY},
-	{"poisonarrow",		CONST_ANI_POISONARROW},
-	{"burstarrow",		CONST_ANI_BURSTARROW},
-	{"throwingstar",	CONST_ANI_THROWINGSTAR},
-	{"throwingknife",	CONST_ANI_THROWINGKNIFE},
-	{"smallstone",		CONST_ANI_SMALLSTONE},
-	{"death",		CONST_ANI_DEATH},
-	{"largerock",		CONST_ANI_LARGEROCK},
-	{"snowball",		CONST_ANI_SNOWBALL},
-	{"powerbolt",		CONST_ANI_POWERBOLT},
-	{"poison",		CONST_ANI_POISON},
-	{"infernalbolt",	CONST_ANI_INFERNALBOLT},
-	{"huntingspear",	CONST_ANI_HUNTINGSPEAR},
-	{"enchantedspear",	CONST_ANI_ENCHANTEDSPEAR},
-	{"redstar",		CONST_ANI_REDSTAR},
-	{"greenstar",		CONST_ANI_GREENSTAR},
-	{"royalspear",		CONST_ANI_ROYALSPEAR},
-	{"sniperarrow",		CONST_ANI_SNIPERARROW},
-	{"onyxarrow",		CONST_ANI_ONYXARROW},
-	{"piercingbolt",	CONST_ANI_PIERCINGBOLT},
-	{"whirlwindsword",	CONST_ANI_WHIRLWINDSWORD},
-	{"whirlwindaxe",	CONST_ANI_WHIRLWINDAXE},
-	{"whirlwindclub",	CONST_ANI_WHIRLWINDCLUB},
-	{"etherealspear",	CONST_ANI_ETHEREALSPEAR},
-	{"ice",			CONST_ANI_ICE},
-	{"earth",		CONST_ANI_EARTH},
-	{"holy",		CONST_ANI_HOLY},
-	{"suddendeath",		CONST_ANI_SUDDENDEATH},
-	{"flasharrow",		CONST_ANI_FLASHARROW},
-	{"flammingarrow",	CONST_ANI_FLAMMINGARROW},
-	{"shiverarrow",		CONST_ANI_SHIVERARROW},
-	{"energyball",		CONST_ANI_ENERGYBALL},
-	{"smallice",		CONST_ANI_SMALLICE},
-	{"smallholy",		CONST_ANI_SMALLHOLY},
-	{"smallearth",		CONST_ANI_SMALLEARTH},
-	{"eartharrow",		CONST_ANI_EARTHARROW},
-	{"explosion",		CONST_ANI_EXPLOSION},
+	{"arrow",				CONST_ANI_ARROW},
+	{"bolt",				CONST_ANI_BOLT},
+	{"burstarrow",			CONST_ANI_BURSTARROW},
+	{"cake",				CONST_ANI_CAKE},
+	{"crystallinearrow",	CONST_ANI_CRYSTALLINEARROW},
+	{"drillbolt",			CONST_ANI_DRILLBOLT},
+	{"death",				CONST_ANI_DEATH},
+	{"energy",				CONST_ANI_ENERGY},
+	{"enchantedspear",		CONST_ANI_ENCHANTEDSPEAR},
+	{"etherealspear",		CONST_ANI_ETHEREALSPEAR},
+	{"eartharrow",			CONST_ANI_EARTHARROW},
+	{"explosion",			CONST_ANI_EXPLOSION},
+	{"earth",				CONST_ANI_EARTH},
+	{"energyball",			CONST_ANI_ENERGYBALL},
+	{"envenomedarrow",		CONST_ANI_ENVENOMEDARROW},
+	{"fire",				CONST_ANI_FIRE},
+	{"flasharrow",			CONST_ANI_FLASHARROW},
+	{"flammingarrow",		CONST_ANI_FLAMMINGARROW},
+	{"greenstar",			CONST_ANI_GREENSTAR},
+	{"gloothspear",			CONST_ANI_GLOOTHSPEAR},
+	{"huntingspear",		CONST_ANI_HUNTINGSPEAR},
+	{"holy",				CONST_ANI_HOLY},
+	{"infernalbolt",		CONST_ANI_INFERNALBOLT},
+	{"ice",					CONST_ANI_ICE},
+	{"largerock",			CONST_ANI_LARGEROCK},
+	{"leafstar",			CONST_ANI_LEAFSTAR},
+	{"onyxarrow",			CONST_ANI_ONYXARROW},
+	{"redstar",				CONST_ANI_REDSTAR},
+	{"royalspear",			CONST_ANI_ROYALSPEAR},
+	{"spear",				CONST_ANI_SPEAR},
+	{"sniperarrow",			CONST_ANI_SNIPERARROW},
+	{"smallstone",			CONST_ANI_SMALLSTONE},
+	{"smallice",			CONST_ANI_SMALLICE},
+	{"smallholy",			CONST_ANI_SMALLHOLY},
+	{"smallearth",			CONST_ANI_SMALLEARTH},
+	{"snowball",			CONST_ANI_SNOWBALL},
+	{"suddendeath",			CONST_ANI_SUDDENDEATH},
+	{"shiverarrow",			CONST_ANI_SHIVERARROW},
+	{"simplearrow",			CONST_ANI_SIMPLEARROW},
+	{"poisonarrow",			CONST_ANI_POISONARROW},
+	{"powerbolt",			CONST_ANI_POWERBOLT},
+	{"poison",				CONST_ANI_POISON},
+	{"prismaticbolt",		CONST_ANI_PRISMATICBOLT},
+	{"piercingbolt",		CONST_ANI_PIERCINGBOLT},
+	{"throwingstar",		CONST_ANI_THROWINGSTAR},
+	{"vortexbolt",			CONST_ANI_VORTEXBOLT},
+	{"throwingknife",		CONST_ANI_THROWINGKNIFE},
+	{"tarsalarrow",			CONST_ANI_TARSALARROW},
+	{"whirlwindsword",		CONST_ANI_WHIRLWINDSWORD},
+	{"whirlwindaxe",		CONST_ANI_WHIRLWINDAXE},
+	{"whirlwindclub",		CONST_ANI_WHIRLWINDCLUB},
+	{"diamondarrow",		CONST_ANI_DIAMONDARROW},
+	{"spectralbolt",		CONST_ANI_SPECTRALBOLT},
+	{"royalstar",			CONST_ANI_ROYALSTAR},
 };
 
 CombatTypeNames combatTypeNames = {
@@ -730,6 +732,7 @@ Skulls_t getSkullType(const std::string& strValue)
 	}
 	return SKULL_NONE;
 }
+
 std::string getSkillName(uint8_t skillid)
 {
 	switch (skillid) {
@@ -967,8 +970,11 @@ std::string getFirstLine(const std::string& str)
 const char* getReturnMessage(ReturnValue value)
 {
 	switch (value) {
+		case RETURNVALUE_REWARDCHESTISEMPTY:
+			return "The chest is currently empty. You did not take part in any battles in the last seven days or already claimed your reward.";
+
 		case RETURNVALUE_DESTINATIONOUTOFREACH:
-			return "Destination is out of range.";
+			return "Destination is out of reach.";
 
 		case RETURNVALUE_NOTMOVEABLE:
 			return "You cannot move this object.";
@@ -992,7 +998,7 @@ const char* getReturnMessage(ReturnValue value)
 			return "You may only use one weapon.";
 
 		case RETURNVALUE_TOOFARAWAY:
-			return "You are too far away.";
+			return "Too far away.";
 
 		case RETURNVALUE_FIRSTGODOWNSTAIRS:
 			return "First go downstairs.";
@@ -1056,7 +1062,7 @@ const char* getReturnMessage(ReturnValue value)
 			return "You are not allowed to shoot directly on players.";
 
 		case RETURNVALUE_NOTENOUGHLEVEL:
-			return "Your level is too low.";
+			return "You do not have enough level.";
 
 		case RETURNVALUE_NOTENOUGHMAGICLEVEL:
 			return "You do not have enough magic level.";
@@ -1070,11 +1076,8 @@ const char* getReturnMessage(ReturnValue value)
 		case RETURNVALUE_YOUAREEXHAUSTED:
 			return "You are exhausted.";
 
-		case RETURNVALUE_YOUCANNOTUSEOBJECTSTHATFAST:
-			return "You cannot use objects that fast.";
-
 		case RETURNVALUE_CANONLYUSETHISRUNEONCREATURES:
-			return "You can only use it on creatures.";
+			return "You can only use this rune on creatures.";
 
 		case RETURNVALUE_PLAYERISNOTREACHABLE:
 			return "Player is not reachable.";
@@ -1086,7 +1089,7 @@ const char* getReturnMessage(ReturnValue value)
 			return "This action is not permitted in a protection zone.";
 
 		case RETURNVALUE_YOUMAYNOTATTACKTHISPLAYER:
-			return "You may not attack this person.";
+			return "You may not attack this player.";
 
 		case RETURNVALUE_YOUMAYNOTATTACKTHISCREATURE:
 			return "You may not attack this creature.";
@@ -1107,10 +1110,10 @@ const char* getReturnMessage(ReturnValue value)
 			return "You need a premium account.";
 
 		case RETURNVALUE_YOUNEEDTOLEARNTHISSPELL:
-			return "You must learn this spell first.";
+			return "You need to learn this spell first.";
 
 		case RETURNVALUE_YOURVOCATIONCANNOTUSETHISSPELL:
-			return "You have the wrong vocation to cast this spell.";
+			return "Your vocation cannot use this spell.";
 
 		case RETURNVALUE_YOUNEEDAWEAPONTOUSETHISSPELL:
 			return "You need to equip a weapon to use this spell.";
@@ -1169,8 +1172,26 @@ const char* getReturnMessage(ReturnValue value)
 		case RETURNVALUE_YOUCANNOTTRADETHISHOUSE:
 			return "You can not trade this house.";
 
-		case RETURNVALUE_YOUDONTHAVEREQUIREDPROFESSION:
-			return "You don't have the required profession.";
+		case RETURNVALUE_NOTENOUGHFISTLEVEL:
+			return "You do not have enough fist level";
+
+		case RETURNVALUE_NOTENOUGHCLUBLEVEL:
+			return "You do not have enough club level";
+
+		case RETURNVALUE_NOTENOUGHSWORDLEVEL:
+			return "You do not have enough sword level";
+
+		case RETURNVALUE_NOTENOUGHAXELEVEL:
+			return "You do not have enough axe level";
+
+		case RETURNVALUE_NOTENOUGHDISTANCELEVEL:
+			return "You do not have enough distance level";
+
+		case RETURNVALUE_NOTENOUGHSHIELDLEVEL:
+			return "You do not have enough shielding level";
+
+		case RETURNVALUE_NOTENOUGHFISHLEVEL:
+			return "You do not have enough fishing level";
 
 		default: // RETURNVALUE_NOTPOSSIBLE, etc
 			return "Sorry, not possible.";
@@ -1181,4 +1202,3 @@ int64_t OTSYS_TIME()
 {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
-

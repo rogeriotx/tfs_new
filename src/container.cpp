@@ -1,6 +1,6 @@
 /**
  * The Forgotten Server - a free and open-source MMORPG server emulator
- * Copyright (C) 2019  Mark Samman <mark.samman@gmail.com>
+ * Copyright (C) 2017  Mark Samman <mark.samman@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -28,7 +28,11 @@ extern Game g_game;
 Container::Container(uint16_t type) :
 	Container(type, items[type].maxItems) {}
 
-Container::Container(uint16_t type, uint16_t size) : Item(type), maxSize(size) {}
+Container::Container(uint16_t type, uint16_t size, bool unlocked /*= true*/) :
+	Item(type),
+	maxSize(size),
+	unlocked(unlocked)
+{}
 
 Container::~Container()
 {
@@ -55,6 +59,11 @@ Container* Container::getParentContainer()
 		return nullptr;
 	}
 	return thing->getContainer();
+}
+ 
+bool Container::hasParent() const
+{
+	return getID() != ITEM_BROWSEFIELD && dynamic_cast<const Player*>(getParent()) == nullptr;
 }
 
 void Container::addItem(Item* item)
@@ -182,7 +191,7 @@ bool Container::isHoldingItem(const Item* item) const
 
 void Container::onAddContainerItem(Item* item)
 {
-	SpectatorVec spectators;
+	SpectatorHashSet spectators;
 	g_game.map.getSpectators(spectators, getPosition(), false, true, 2, 2, 2, 2);
 
 	//send to client
@@ -198,7 +207,7 @@ void Container::onAddContainerItem(Item* item)
 
 void Container::onUpdateContainerItem(uint32_t index, Item* oldItem, Item* newItem)
 {
-	SpectatorVec spectators;
+	SpectatorHashSet spectators;
 	g_game.map.getSpectators(spectators, getPosition(), false, true, 2, 2, 2, 2);
 
 	//send to client
@@ -214,7 +223,7 @@ void Container::onUpdateContainerItem(uint32_t index, Item* oldItem, Item* newIt
 
 void Container::onRemoveContainerItem(uint32_t index, Item* item)
 {
-	SpectatorVec spectators;
+	SpectatorHashSet spectators;
 	g_game.map.getSpectators(spectators, getPosition(), false, true, 2, 2, 2, 2);
 
 	//send change to client
@@ -238,6 +247,10 @@ ReturnValue Container::queryAdd(int32_t index, const Thing& thing, uint32_t coun
 		return RETURNVALUE_NOERROR;
 	}
 
+	if (!unlocked) {
+		return RETURNVALUE_NOTPOSSIBLE;
+	}
+
 	const Item* item = thing.getItem();
 	if (item == nullptr) {
 		return RETURNVALUE_NOTPOSSIBLE;
@@ -256,6 +269,10 @@ ReturnValue Container::queryAdd(int32_t index, const Thing& thing, uint32_t coun
 		while (cylinder) {
 			if (cylinder == &thing) {
 				return RETURNVALUE_THISISIMPOSSIBLE;
+			}
+
+			if (dynamic_cast<const Inbox*>(cylinder)) {
+				return RETURNVALUE_CONTAINERNOTENOUGHROOM;
 			}
 
 			cylinder = cylinder->getParent();
@@ -357,9 +374,13 @@ ReturnValue Container::queryRemove(const Thing& thing, uint32_t count, uint32_t 
 	return RETURNVALUE_NOERROR;
 }
 
-Cylinder* Container::queryDestination(int32_t& index, const Thing& thing, Item** destItem,
+Cylinder* Container::queryDestination(int32_t& index, const Thing &thing, Item** destItem,
 		uint32_t& flags)
 {
+	if (!unlocked) {
+		*destItem = nullptr;
+		return this;
+	}
 
 	if (index == 254 /*move up*/) {
 		index = INDEX_WHEREEVER;
@@ -392,20 +413,6 @@ Cylinder* Container::queryDestination(int32_t& index, const Thing& thing, Item**
 		return this;
 	}
 
-	if (index != INDEX_WHEREEVER) {
-		Item* itemFromIndex = getItemByIndex(index);
-		if (itemFromIndex) {
-			*destItem = itemFromIndex;
-		}
-
-		Cylinder* subCylinder = dynamic_cast<Cylinder*>(*destItem);
-		if (subCylinder) {
-			index = INDEX_WHEREEVER;
-			*destItem = nullptr;
-			return subCylinder;
-		}
-	}
-
 	bool autoStack = !hasBitSet(FLAG_IGNOREAUTOSTACK, flags);
 	if (autoStack && item->isStackable() && item->getParent() != this) {
 		//try find a suitable item to stack with
@@ -417,6 +424,20 @@ Cylinder* Container::queryDestination(int32_t& index, const Thing& thing, Item**
 				return this;
 			}
 			++n;
+		}
+	}
+
+	if (index != INDEX_WHEREEVER) {
+		Item* itemFromIndex = getItemByIndex(index);
+		if (itemFromIndex) {
+			*destItem = itemFromIndex;
+		}
+
+		Cylinder* subCylinder = dynamic_cast<Cylinder*>(*destItem);
+		if (subCylinder) {
+			index = INDEX_WHEREEVER;
+			*destItem = nullptr;
+			return subCylinder;
 		}
 	}
 	return this;
